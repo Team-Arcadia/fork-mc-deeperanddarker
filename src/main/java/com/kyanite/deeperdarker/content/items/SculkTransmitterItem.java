@@ -67,40 +67,55 @@ public class SculkTransmitterItem extends Item {
     }
 
     public static InteractionResult transmit(Level level, Player player, ItemStack stack, BlockPos clickedPos) {
-        Transmitter transmitter = stack.get(DDDataComponents.TRANSMITTER);
-        if (transmitter.linkedPos().isEmpty()) {
-            return InteractionResult.FAIL;
-        }
-
-        if (player.isCrouching()) {
-            if (clickedPos != null && canConnect(level, clickedPos)) {
-                tryConnect(transmitter, stack, player, clickedPos, "linked", DDSounds.TRANSMITTER_LINK);
-                return InteractionResult.SUCCESS;
+        // The remote-access path below assumes the linked dimension/chunk is reachable. When the
+        // linked block is very far away or in an unloaded/unavailable dimension, getServer().getLevel()
+        // can return null (NPE), or the cross-dimensional gameEvent / useWithoutItem dispatch can throw
+        // (e.g. AIOOBE in the chunk listener registry). Any such failure here crashes the server tick.
+        // Catch it, log once and fail the interaction gracefully instead of bringing the server down.
+        try {
+            Transmitter transmitter = stack.get(DDDataComponents.TRANSMITTER);
+            if (transmitter.linkedPos().isEmpty()) {
+                return InteractionResult.FAIL;
             }
 
-            tryConnect(transmitter, stack, player, null, "unlinked", DDSounds.TRANSMITTER_UNLINK);
+            if (player.isCrouching()) {
+                if (clickedPos != null && canConnect(level, clickedPos)) {
+                    tryConnect(transmitter, stack, player, clickedPos, "linked", DDSounds.TRANSMITTER_LINK);
+                    return InteractionResult.SUCCESS;
+                }
+
+                tryConnect(transmitter, stack, player, null, "unlinked", DDSounds.TRANSMITTER_UNLINK);
+                return InteractionResult.FAIL;
+            }
+
+            if(level.isClientSide()) return InteractionResult.sidedSuccess(true);
+            ServerLevel linkedLevel = player.getServer().getLevel(transmitter.linkedPos().get().dimension());
+            BlockPos linkedPos = transmitter.linkedPos().get().pos();
+
+            if (linkedLevel == null) {
+                tryConnect(transmitter, stack, player, null, "not_found", DDSounds.TRANSMITTER_ERROR);
+                return InteractionResult.FAIL;
+            }
+
+            if (!linkedLevel.isLoaded(linkedPos)) {
+                ChunkPos chunkPos = new ChunkPos(linkedPos);
+                linkedLevel.getChunkSource().addRegionTicket(TicketType.UNKNOWN, chunkPos, 1, chunkPos);
+            }
+
+            if (!canConnect(linkedLevel, linkedPos)) {
+                tryConnect(transmitter, stack, player, null, "not_found", DDSounds.TRANSMITTER_ERROR);
+                return InteractionResult.FAIL;
+            }
+
+            linkedLevel.gameEvent(GameEvent.ENTITY_INTERACT, player.blockPosition(), GameEvent.Context.of(player));
+            linkedLevel.getBlockState(linkedPos).useWithoutItem(linkedLevel, player, new BlockHitResult(linkedPos.getCenter(), Direction.NORTH, linkedPos, false));
+            player.getData(DDDataAttachments.PLAYER_DATA).usingTransmitter = true;
+
+            return InteractionResult.SUCCESS;
+        } catch (Throwable t) {
+            DeeperDarker.LOGGER.error("Sculk Transmitter failed to transmit: the linked block may be too far away, in an unloaded dimension, or otherwise unreachable", t);
             return InteractionResult.FAIL;
         }
-
-        if(level.isClientSide()) return InteractionResult.sidedSuccess(true);
-        ServerLevel linkedLevel = player.getServer().getLevel(transmitter.linkedPos().get().dimension());
-        BlockPos linkedPos = transmitter.linkedPos().get().pos();
-
-        if (!linkedLevel.isLoaded(linkedPos)) {
-            ChunkPos chunkPos = new ChunkPos(linkedPos);
-            linkedLevel.getChunkSource().addRegionTicket(TicketType.UNKNOWN, chunkPos, 1, chunkPos);
-        }
-
-        if (!canConnect(linkedLevel, linkedPos)) {
-            tryConnect(transmitter, stack, player, null, "not_found", DDSounds.TRANSMITTER_ERROR);
-            return InteractionResult.FAIL;
-        }
-
-        linkedLevel.gameEvent(GameEvent.ENTITY_INTERACT, player.blockPosition(), GameEvent.Context.of(player));
-        linkedLevel.getBlockState(linkedPos).useWithoutItem(linkedLevel, player, new BlockHitResult(linkedPos.getCenter(), Direction.NORTH, linkedPos, false));
-        player.getData(DDDataAttachments.PLAYER_DATA).usingTransmitter = true;
-
-        return InteractionResult.SUCCESS;
     }
 
     public static boolean isLinked(ItemStack stack) {
