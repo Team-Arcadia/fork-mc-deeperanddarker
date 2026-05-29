@@ -43,7 +43,9 @@ public class CrystallizedAmberBlockEntity extends BlockEntity {
                     .create(LootContextParamSets.CHEST);
             List<ItemStack> list = table.getRandomItems(lootParams);
 
-            this.loot = list.getFirst();
+            // Guard against an emptied/overridden loot table (e.g. via LootJS) or a roll that yields
+            // no items: getFirst() would throw NoSuchElementException and crash the server tick.
+            this.loot = list.isEmpty() ? ItemStack.EMPTY : list.getFirst();
         }
 
         this.setChanged();
