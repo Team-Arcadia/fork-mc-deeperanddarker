@@ -35,6 +35,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.data.AdvancementProvider;
 import net.neoforged.neoforge.common.data.ExistingFileHelper;
@@ -80,6 +81,9 @@ public class DeeperDarker {
         eventBus.addListener(this::registerPayloads);
         eventBus.addListener(this::registerAttributes);
         eventBus.addListener(this::registerSpawnPlacements);
+
+        eventBus.addListener(ModConfigEvent.Loading.class, DeeperDarkerConfig::onConfigChanged);
+        eventBus.addListener(ModConfigEvent.Reloading.class, DeeperDarkerConfig::onConfigChanged);
 
         container.registerConfig(ModConfig.Type.COMMON, DeeperDarkerConfig.CONFIG_SPEC);
     }
